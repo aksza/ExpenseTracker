@@ -1,0 +1,19 @@
+﻿@page
+@model ExpenseTracker.Areas.Identity.Pages.Account.Manage.DeleteUserModel
+@{
+    ViewData["Title"] = "Delete Account";
+}
+
+<h3>@ViewData["Title"]</h3>
+
+<p>Are you sure you want to delete your account? This action can be undone only by an administrator.</p>
+
+<form method="post">
+    <button type="submit" class="btn btn-danger">Delete My Account</button>
+    <a asp-page="./Index" class="btn btn-secondary">Cancel</a>
+</form>
+
+@if (!string.IsNullOrEmpty(Model.StatusMessage))
+{
+    <div class="alert alert-info mt-3">@Model.StatusMessage</div>
+}
