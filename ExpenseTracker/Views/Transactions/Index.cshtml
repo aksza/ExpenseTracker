@@ -1,0 +1,112 @@
+﻿@model TransactionsViewModel
+@using ExpenseTracker.Models.Enums
+
+@{
+    ViewData["Title"] = "Transactions";
+    var selectedType = Model.SelectedType;
+}
+
+<h1>@ViewData["Title"]</h1>
+
+<div class="row">
+    <div class="col-md-3">
+        <h4>Filters</h4>
+        <form method="get">
+            <!-- Transaction Type -->
+            <div class="mb-3">
+                <label for="type" class="form-label">Transaction Type</label>
+                <select id="type" name="type" class="form-select" asp-items="@(ViewBag.TransactionTypes)">
+                </select>
+            </div>
+
+
+            <!-- Category -->
+            <div class="mb-3">
+                <label for="category" class="form-label">Category</label>
+                <select id="category" name="categoryId" class="form-select"
+                        asp-items="@(new SelectList(Model.Categories, "Id", "Name", Model.SelectedCategoryId))">
+                    <option value="">All</option>
+                </select>
+            </div>
+
+
+            <!-- Start Date -->
+            <div class="mb-3">
+                <label for="startDate" class="form-label">Start Date</label>
+                <input type="date" id="startDate" name="startDate" value="@(Model.StartDate?.ToString("yyyy-MM-dd"))" class="form-control" />
+            </div>
+
+            <!-- End Date -->
+            <div class="mb-3">
+                <label for="endDate" class="form-label">End Date</label>
+                <input type="date" id="endDate" name="endDate" value="@(Model.EndDate?.ToString("yyyy-MM-dd"))" class="form-control" />
+            </div>
+
+            <button type="submit" class="btn btn-primary">Apply Filters</button>
+        </form>
+    </div>
+
+    <div class="col-md-9">
+        <h4>@(selectedType == TransactionType.Expense ? "Expenses" : "Income")</h4>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>
+                        <a href="@Url.Action("Index", new {
+                            type = Model.SelectedType,
+                            categoryId = Model.SelectedCategoryId,
+                            startDate = Model.StartDate?.ToString("yyyy-MM-dd"),
+                            endDate = Model.EndDate?.ToString("yyyy-MM-dd"),
+                            page = Model.PageNumber,
+                            sortColumn = "Date",
+                            sortOrder = Model.SortColumn == "Date" && Model.SortOrder == "asc" ? "desc" : "asc"
+                        })">
+                            Date @(Model.SortColumn == "Date" ? (Model.SortOrder == "asc" ? "↑" : "↓") : "")
+                        </a>
+                    </th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>
+                        <a href="@Url.Action("Index", new {
+                            type = Model.SelectedType,
+                            categoryId = Model.SelectedCategoryId,
+                            startDate = Model.StartDate?.ToString("yyyy-MM-dd"),
+                            endDate = Model.EndDate?.ToString("yyyy-MM-dd"),
+                            page = Model.PageNumber,
+                            sortColumn = "Amount",
+                            sortOrder = Model.SortColumn == "Amount" && Model.SortOrder == "asc" ? "desc" : "asc"
+                        })">
+                            Amount @(Model.SortColumn == "Amount" ? (Model.SortOrder == "asc" ? "↑" : "↓") : "")
+                        </a>
+                    </th>
+                </tr>
+            </thead>
+
+            <tbody>
+                @foreach (var t in Model.Transactions)
+                {
+                    <tr>
+                        <td>@t.Date.ToString("yyyy-MM-dd")</td>
+                        <td>@t.Category.Name</td>
+                        <td>@t.Description</td>
+                        <td>@t.Amount.ToString("C")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <!-- Pagination -->
+        <nav aria-label="Page navigation">
+            <ul class="pagination">
+                @for (int i = 1; i <= Math.Ceiling(Model.TotalCount / (double)Model.PageSize); i++)
+                {
+                    <li class="page-item @(i == Model.PageNumber ? "active" : "")">
+                        <a class="page-link" href="?type=@selectedType&page=@i@(Model.SelectedCategoryId.HasValue ? "&categoryId=" + Model.SelectedCategoryId : "")@(Model.StartDate.HasValue ? "&startDate=" + Model.StartDate.Value.ToString("yyyy-MM-dd") : "")@(Model.EndDate.HasValue ? "&endDate=" + Model.EndDate.Value.ToString("yyyy-MM-dd") : "")">
+                            @i
+                        </a>
+                    </li>
+                }
+            </ul>
+        </nav>
+    </div>
+</div>
