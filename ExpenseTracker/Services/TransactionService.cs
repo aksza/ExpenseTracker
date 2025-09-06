@@ -72,4 +72,55 @@ public class TransactionService : ITransactionService
             .OrderBy(c => c.Name)
             .ToListAsync();
     }
+
+    public async Task<Category?> GetCategoryByIdAsync(int categoryId)
+    {
+        return await _context.Categories
+            .FirstOrDefaultAsync(c => c.Id == categoryId);
+    }
+
+    public async Task<Category> AddCategoryAsync(string name, TransactionType type)
+    {
+        var category = new Category
+        {
+            Name = name,
+            TransactionType = type
+        };
+
+        _context.Categories.Add(category);
+        await _context.SaveChangesAsync();
+        return category;
+    }
+
+    public async Task<Transaction?> GetTransactionByIdAsync(int transactionId, string userId)
+    {
+        return await _context.Transactions
+            .Include(t => t.Category)
+            .FirstOrDefaultAsync(t => t.Id == transactionId && t.UserId == userId && !t.IsDeleted);
+    }
+
+    public async Task AddTransactionAsync(Transaction transaction)
+    {
+        _context.Transactions.Add(transaction);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task UpdateTransactionAsync(Transaction transaction)
+    {
+        transaction.UpdatedAt = DateTime.UtcNow;
+        _context.Transactions.Update(transaction);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task DeleteTransactionAsync(int transactionId, string userId)
+    {
+        var transaction = await _context.Transactions
+            .FirstOrDefaultAsync(t => t.Id == transactionId && t.UserId == userId && !t.IsDeleted);
+
+        if (transaction != null)
+        {
+            transaction.IsDeleted = true;
+            await _context.SaveChangesAsync();
+        }
+    }
 }

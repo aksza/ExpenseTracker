@@ -1,5 +1,6 @@
 ﻿using ExpenseTracker.Models;
 using ExpenseTracker.Models.Enums;
+using ExpenseTracker.Models.ViewModels;
 
 public interface ITransactionService
 {
@@ -15,4 +16,10 @@ public interface ITransactionService
         string sortOrder = "desc");
 
     Task<List<Category>> GetCategoriesAsync(TransactionType type);
+    Task<Category?> GetCategoryByIdAsync(int categoryId);
+    Task<Transaction?> GetTransactionByIdAsync(int transactionId, string userId);
+    Task<Category> AddCategoryAsync(string name, TransactionType type);
+    Task AddTransactionAsync(Transaction transaction);
+    Task UpdateTransactionAsync(Transaction transaction);
+    Task DeleteTransactionAsync(int transactionId, string userId);
 }
