@@ -5,6 +5,8 @@ using ExpenseTracker.Models;
 using ExpenseTracker.Settings;
 using ExpenseTracker.Services;
 using Microsoft.AspNetCore.Identity.UI.Services;
+using ExpenseTracker.Services.Interfaces;
+using ExpenseTracker.Validators;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,6 +44,8 @@ builder.Services.Configure<SmtpSettings>(
 
 builder.Services.AddTransient<IEmailSender, EmailSender>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
+builder.Services.AddScoped<ICategoryService, CategoryService>();
+builder.Services.AddScoped<ITransactionValidator, TransactionValidator>();
 
 var app = builder.Build();
 

@@ -1,6 +1,8 @@
 ﻿using ExpenseTracker.Models;
 using ExpenseTracker.Models.Enums;
 using ExpenseTracker.Models.ViewModels;
+using ExpenseTracker.Services.Interfaces;
+using ExpenseTracker.Validators;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -10,10 +12,17 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 public class TransactionsController : Controller
 {
     private readonly ITransactionService _transactionService;
+    private readonly ICategoryService _categoryService;
+    private readonly ITransactionValidator _transactionValidator;
     private readonly UserManager<AppUser> _userManager;
 
-    public TransactionsController(ITransactionService transactionService, UserManager<AppUser> userManager)
+    public TransactionsController(ITransactionService transactionService,
+        ICategoryService categoryService,
+        ITransactionValidator transactionValidator,
+        UserManager<AppUser> userManager)
     {
+        _categoryService = categoryService;
+        _transactionValidator = transactionValidator;
         _transactionService = transactionService;
         _userManager = userManager;
     }
@@ -27,11 +36,11 @@ public class TransactionsController : Controller
                              string sortOrder = "desc")
     {
         var selectedType = type ?? TransactionType.Expense;
-        var userId = _userManager.GetUserId(User);
+        var userId = GetCurrentUserId();
 
         if (userId == null)
         {
-            return RedirectToAction("Login", "Account");
+            return RedirectToLogin();
         }
 
         var model = await _transactionService.GetUserTransactionsAsync(
@@ -45,16 +54,9 @@ public class TransactionsController : Controller
             sortColumn,
             sortOrder);
 
-        model.Categories = await _transactionService.GetCategoriesAsync(selectedType);
+        model.Categories = await _categoryService.GetCategoriesAsync(selectedType);
 
-        ViewBag.TransactionTypes = Enum.GetValues(typeof(TransactionType))
-            .Cast<TransactionType>()
-            .Select(t => new SelectListItem
-            {
-                Value = ((int)t).ToString(),
-                Text = t.ToString(),
-                Selected = (t == selectedType)
-            }).ToList();
+        ViewBag.TransactionTypes = GetTransactionTypeSelectList(selectedType);
 
         return View(model);
     }
@@ -65,88 +67,43 @@ public class TransactionsController : Controller
     {
         try
         {
-            var userId = _userManager.GetUserId(User);
+            var userId = GetCurrentUserId();
             if (userId == null)
             {
-                return RedirectToAction("Login", "Account");
+                return RedirectToLogin();
             }
 
-            // Basic validation
-            if (model.Transaction.Amount <= 0)
+            var validationResult = _transactionValidator.ValidateTransaction(model.Transaction);
+            if (!validationResult.IsValid)
             {
-                TempData["ErrorMessage"] = "Amount must be greater than 0";
-                return RedirectToAction("Index", new { type = model.Transaction.TransactionType });
+                TempData["ErrorMessage"] = validationResult.ErrorMessage;
+                return RedirectToIndex(model.Transaction.TransactionType);
             }
 
-            if (model.Transaction.Date == default(DateTime))
-            {
-                TempData["ErrorMessage"] = "Date is required";
-                return RedirectToAction("Index", new { type = model.Transaction.TransactionType });
-            }
-
-            int categoryId;
-
-            if (model.CategoryId.HasValue && model.CategoryId > 0)
-            {
-                categoryId = model.CategoryId.Value;
-            }
-            else if (!string.IsNullOrEmpty(model.NewCategoryName))
-            {
-                var newCategory = await _transactionService.AddCategoryAsync(
-                    model.NewCategoryName,
-                    model.Transaction.TransactionType);
-                categoryId = newCategory.Id;
-            }
-            else if (!string.IsNullOrEmpty(CategoryName))
-            {
-                var existingCategories = await _transactionService.GetCategoriesAsync(model.Transaction.TransactionType);
-                var existingCategory = existingCategories.FirstOrDefault(c =>
-                    c.Name.Equals(CategoryName, StringComparison.OrdinalIgnoreCase));
-
-                if (existingCategory != null)
-                {
-                    categoryId = existingCategory.Id;
-                }
-                else
-                {
-                    var newCategory = await _transactionService.AddCategoryAsync(
-                        CategoryName,
-                        model.Transaction.TransactionType);
-                    categoryId = newCategory.Id;
-                }
-            }
-            else
+            var categoryId = await GetOrCreateCategoryIdAsync(model, CategoryName);
+            if (categoryId == null)
             {
                 TempData["ErrorMessage"] = "Category is required";
-                return RedirectToAction("Index", new { type = model.Transaction.TransactionType });
+                return RedirectToIndex(model.Transaction.TransactionType);
             }
 
-            var transaction = new Transaction
-            {
-                UserId = userId,
-                TransactionType = model.Transaction.TransactionType,
-                CategoryId = categoryId,
-                Amount = model.Transaction.Amount,
-                Date = model.Transaction.Date,
-                Description = model.Transaction.Description ?? string.Empty
-            };
-
+            var transaction = CreateTransactionFromModel(model, userId, categoryId.Value);
             await _transactionService.AddTransactionAsync(transaction);
 
             TempData["SuccessMessage"] = "Transaction added successfully!";
-            return RedirectToAction("Index", new { type = model.Transaction.TransactionType });
+            return RedirectToIndex(model.Transaction.TransactionType);
         }
         catch (Exception ex)
         {
             TempData["ErrorMessage"] = "Error saving transaction: " + ex.Message;
-            return RedirectToAction("Index", new { type = model.Transaction.TransactionType });
+            return RedirectToIndex(model.Transaction.TransactionType);
         }
     }
 
     [HttpGet]
     public async Task<IActionResult> Edit(int id)
     {
-        var userId = _userManager.GetUserId(User);
+        var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
         var transaction = await _transactionService.GetTransactionByIdAsync(id, userId);
@@ -156,7 +113,7 @@ public class TransactionsController : Controller
             return RedirectToAction("Index");
         }
 
-        var categories = await _transactionService.GetCategoriesAsync(transaction.TransactionType);
+        var categories = await _categoryService.GetCategoriesAsync(transaction.TransactionType);
 
         var model = new AddTransactionViewModel
         {
@@ -174,10 +131,10 @@ public class TransactionsController : Controller
     {
         try
         {
-            var userId = _userManager.GetUserId(User);
+            var userId = GetCurrentUserId();
             if (userId == null)
             {
-                return RedirectToAction("Login", "Account");
+                return RedirectToLogin();
             }
 
             var existingTransaction = await _transactionService.GetTransactionByIdAsync(model.Transaction.Id, userId);
@@ -187,64 +144,25 @@ public class TransactionsController : Controller
                 return RedirectToAction("Index");
             }
 
-            if (model.Transaction.Amount <= 0)
+            var validationResult = _transactionValidator.ValidateTransaction(model.Transaction);
+            if (!validationResult.IsValid)
             {
-                TempData["ErrorMessage"] = "Amount must be greater than 0";
-                return RedirectToAction("Index", new { type = model.Transaction.TransactionType });
+                TempData["ErrorMessage"] = validationResult.ErrorMessage;
+                return RedirectToIndex(model.Transaction.TransactionType);
             }
 
-            if (model.Transaction.Date == default(DateTime))
-            {
-                TempData["ErrorMessage"] = "Date is required";
-                return RedirectToAction("Index", new { type = model.Transaction.TransactionType });
-            }
-
-            int categoryId;
-
-            if (model.CategoryId.HasValue && model.CategoryId > 0)
-            {
-                categoryId = model.CategoryId.Value;
-            }
-            else if (!string.IsNullOrEmpty(model.NewCategoryName))
-            {
-                var newCategory = await _transactionService.AddCategoryAsync(
-                    model.NewCategoryName,
-                    model.Transaction.TransactionType);
-                categoryId = newCategory.Id;
-            }
-            else if (!string.IsNullOrEmpty(CategoryName))
-            {
-                var existingCategories = await _transactionService.GetCategoriesAsync(model.Transaction.TransactionType);
-                var existingCategory = existingCategories.FirstOrDefault(c =>
-                    c.Name.Equals(CategoryName, StringComparison.OrdinalIgnoreCase));
-
-                if (existingCategory != null)
-                {
-                    categoryId = existingCategory.Id;
-                }
-                else
-                {
-                    var newCategory = await _transactionService.AddCategoryAsync(
-                        CategoryName,
-                        model.Transaction.TransactionType);
-                    categoryId = newCategory.Id;
-                }
-            }
-            else
+            var categoryId = await GetOrCreateCategoryIdAsync(model, CategoryName);
+            if (categoryId == null)
             {
                 TempData["ErrorMessage"] = "Category is required";
-                return RedirectToAction("Index", new { type = model.Transaction.TransactionType });
+                return RedirectToIndex(model.Transaction.TransactionType);
             }
 
-            existingTransaction.CategoryId = categoryId;
-            existingTransaction.Amount = model.Transaction.Amount;
-            existingTransaction.Date = model.Transaction.Date;
-            existingTransaction.Description = model.Transaction.Description ?? string.Empty;
-
+            UpdateExistingTransaction(existingTransaction, model, categoryId.Value);
             await _transactionService.UpdateTransactionAsync(existingTransaction);
 
             TempData["SuccessMessage"] = "Transaction updated successfully!";
-            return RedirectToAction("Index", new { type = model.Transaction.TransactionType });
+            return RedirectToIndex(model.Transaction.TransactionType);
         }
         catch (Exception ex)
         {
@@ -259,7 +177,7 @@ public class TransactionsController : Controller
     {
         try
         {
-            var userId = _userManager.GetUserId(User);
+            var userId = GetCurrentUserId();
             if (userId == null)
             {
                 return Json(new { success = false, message = "User not authenticated" });
@@ -280,4 +198,78 @@ public class TransactionsController : Controller
             return Json(new { success = false, message = "Error deleting transaction: " + ex.Message });
         }
     }
+
+    #region Private Helper Methods
+
+    private string? GetCurrentUserId() => _userManager.GetUserId(User);
+
+    private IActionResult RedirectToLogin() => RedirectToAction("Login", "Account");
+
+    private IActionResult RedirectToIndex(TransactionType type) =>
+        RedirectToAction("Index", new { type });
+
+    private List<SelectListItem> GetTransactionTypeSelectList(TransactionType selectedType)
+    {
+        return Enum.GetValues(typeof(TransactionType))
+            .Cast<TransactionType>()
+            .Select(t => new SelectListItem
+            {
+                Value = ((int)t).ToString(),
+                Text = t.ToString(),
+                Selected = (t == selectedType)
+            }).ToList();
+    }
+
+    private async Task<int?> GetOrCreateCategoryIdAsync(AddTransactionViewModel model, string? categoryName)
+    {
+        if (model.CategoryId.HasValue && model.CategoryId > 0)
+        {
+            return model.CategoryId.Value;
+        }
+
+        var effectiveCategoryName = model.NewCategoryName ?? categoryName;
+        if (string.IsNullOrEmpty(effectiveCategoryName))
+        {
+            return null;
+        }
+
+        var existingCategories = await _categoryService.GetCategoriesAsync(model.Transaction.TransactionType);
+        var existingCategory = existingCategories.FirstOrDefault(c =>
+            c.Name.Equals(effectiveCategoryName, StringComparison.OrdinalIgnoreCase));
+
+        if (existingCategory != null)
+        {
+            return existingCategory.Id;
+        }
+
+        var newCategory = await _categoryService.AddCategoryAsync(
+            effectiveCategoryName,
+            model.Transaction.TransactionType);
+
+        return newCategory.Id;
+    }
+
+    private static Transaction CreateTransactionFromModel(AddTransactionViewModel model, string userId, int categoryId)
+    {
+        return new Transaction
+        {
+            UserId = userId,
+            TransactionType = model.Transaction.TransactionType,
+            CategoryId = categoryId,
+            Amount = model.Transaction.Amount,
+            Date = model.Transaction.Date,
+            Description = model.Transaction.Description ?? string.Empty
+        };
+    }
+
+    private static void UpdateExistingTransaction(Transaction existingTransaction,
+        AddTransactionViewModel model, int categoryId)
+    {
+        existingTransaction.CategoryId = categoryId;
+        existingTransaction.Amount = model.Transaction.Amount;
+        existingTransaction.Date = model.Transaction.Date;
+        existingTransaction.Description = model.Transaction.Description ?? string.Empty;
+    }
+
+    #endregion
 }

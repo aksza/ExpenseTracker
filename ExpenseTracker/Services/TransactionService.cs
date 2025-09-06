@@ -65,33 +65,6 @@ public class TransactionService : ITransactionService
         };
     }
 
-    public async Task<List<Category>> GetCategoriesAsync(TransactionType type)
-    {
-        return await _context.Categories
-            .Where(c => c.TransactionType == type)
-            .OrderBy(c => c.Name)
-            .ToListAsync();
-    }
-
-    public async Task<Category?> GetCategoryByIdAsync(int categoryId)
-    {
-        return await _context.Categories
-            .FirstOrDefaultAsync(c => c.Id == categoryId);
-    }
-
-    public async Task<Category> AddCategoryAsync(string name, TransactionType type)
-    {
-        var category = new Category
-        {
-            Name = name,
-            TransactionType = type
-        };
-
-        _context.Categories.Add(category);
-        await _context.SaveChangesAsync();
-        return category;
-    }
-
     public async Task<Transaction?> GetTransactionByIdAsync(int transactionId, string userId)
     {
         return await _context.Transactions
